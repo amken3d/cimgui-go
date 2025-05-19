@@ -6,8 +6,8 @@ package imnodes
 import (
 	"unsafe"
 
-	"github.com/AllenDang/cimgui-go/imgui"
-	"github.com/AllenDang/cimgui-go/internal"
+	"github.com/amken3d/cimgui-go/imgui"
+	"github.com/amken3d/cimgui-go/internal"
 )
 
 // #include "structs_accessor.h"

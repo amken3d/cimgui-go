@@ -1,113 +1,252 @@
-// This code is a modified version of examples/shapes from https://github.com/ebiten/ebiten
-// Ebiten is licensed under the following licens:
-//
-//
-// Copyright 2017 The Ebiten Authors
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-
 package main
 
 import (
-	"errors"
+	"bytes"
+	"context"
 	"fmt"
-	"image/color"
+	"image"
+	"image/jpeg"
+	"io"
 	"log"
+	"runtime"
+	"sync"
+	"time"
 
-	"github.com/AllenDang/cimgui-go/backend"
-	ebitenbackend "github.com/AllenDang/cimgui-go/backend/ebiten-backend"
-	"github.com/AllenDang/cimgui-go/examples/common"
-	"github.com/AllenDang/cimgui-go/imgui"
-	"github.com/hajimehoshi/ebiten/v2"
-	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
-	"github.com/hajimehoshi/ebiten/v2/inpututil"
-	"github.com/hajimehoshi/ebiten/v2/vector"
+	"github.com/amken3d/cimgui-go/backend"
+	ebitenbackend "github.com/amken3d/cimgui-go/backend/ebiten-backend"
+	"github.com/amken3d/cimgui-go/examples/common"
+	"github.com/amken3d/cimgui-go/imgui"
+
+	"github.com/vladimirvivien/go4vl/device"
+	"github.com/vladimirvivien/go4vl/v4l2"
 )
 
 const (
-	screenWidth  = 1000
-	screenHeight = 800
+	screenWidth  = 1200
+	screenHeight = 900
+	frameWidth   = 640
+	frameHeight  = 480
+	devicePath   = "/dev/video0" // Update this to match your camera device
 )
 
-func callback(data imgui.InputTextCallbackData) int {
-	fmt.Println("got call back")
-	return 0
-}
+var (
+	currentBackend *ebitenbackend.EbitenBackend
+	texture        *backend.Texture
+	camera         *device.Device
+	frameCount     uint64
+	droppedFrames  uint64
+	lastFrame      *image.RGBA
+	running        bool
+	cameraMutex    sync.Mutex
+)
 
-type Game struct {
-	showCimgui bool
-	count      int
-	cimgui     *ebitenbackend.EbitenBackend
-}
+// showVideoStream displays the camera video in an ImGui window
+func showVideoStream() {
+	// Position the window
+	basePos := imgui.MainViewport().Pos()
+	imgui.SetNextWindowPosV(imgui.NewVec2(basePos.X+60, basePos.Y+60), imgui.CondOnce, imgui.NewVec2(0, 0))
+	imgui.SetNextWindowSizeV(imgui.NewVec2(float32(frameWidth)+30, float32(frameHeight)+100), imgui.CondOnce)
 
-func (g *Game) Update() error {
-	if inpututil.IsKeyJustPressed(ebiten.KeyQ) {
-		g.showCimgui = !g.showCimgui
+	// Create a window for the video
+	imgui.Begin("V4L2 Camera Feed")
+
+	// Display stats
+	imgui.Text(fmt.Sprintf("Frames: %d (Dropped: %d)", frameCount, droppedFrames))
+
+	// Display the video texture
+	if texture != nil {
+		imgui.ImageV(
+			texture.ID,
+			imgui.NewVec2(float32(frameWidth), float32(frameHeight)),
+			imgui.NewVec2(0, 0),
+			imgui.NewVec2(1, 1),
+		)
+	} else {
+		imgui.Text("No video texture available")
 	}
 
-	if g.showCimgui {
-		g.cimgui.BeginFrame()
-		common.Loop()
-		g.cimgui.EndFrame()
+	imgui.End()
+}
+
+// updateCameraFrame attempts to get a new frame from the camera and update the texture
+func updateCameraFrame() {
+	cameraMutex.Lock()
+	defer cameraMutex.Unlock()
+
+	if camera == nil || !running {
+		return
 	}
-	g.count++
-	g.count %= 240
+
+	// Try to get a frame with a short timeout
+	select {
+	case frame := <-camera.GetOutput():
+		if frame == nil {
+			droppedFrames++
+			return
+		}
+
+		// Convert frame bytes to image (depends on pixel format)
+		var img image.Image
+		var err error
+
+		// Assuming MJPEG format
+		img, err = jpeg.Decode(io.NewSectionReader(bytes.NewReader(frame), 0, int64(len(frame))))
+		if err != nil {
+			droppedFrames++
+			return
+		}
+
+		// Convert to RGBA
+		bounds := img.Bounds()
+		rgba := image.NewRGBA(bounds)
+		for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+			for x := bounds.Min.X; x < bounds.Max.X; x++ {
+				rgba.Set(x, y, img.At(x, y))
+			}
+		}
+
+		// Update the texture with the new frame
+		lastFrame = rgba
+		frameCount++
+		if currentBackend != nil && texture != nil {
+			currentBackend.UpdateTexture(texture.ID, rgba)
+
+		}
+
+	case <-time.After(16 * time.Millisecond): // ~60fps timeout
+		// No frame available in time
+		return
+	}
+}
+
+// initCamera initializes the camera device
+func initCamera() error {
+	cameraMutex.Lock()
+	defer cameraMutex.Unlock()
+
+	// Close any existing camera first
+	closeCamera()
+
+	// Open camera device
+	dev, err := device.Open(
+		devicePath,
+		device.WithIOType(v4l2.IOTypeMMAP),
+		device.WithPixFormat(v4l2.PixFormat{
+			Width:       frameWidth,
+			Height:      frameHeight,
+			PixelFormat: v4l2.PixelFmtMJPEG, // MJPEG for better performance
+			Field:       v4l2.FieldNone,
+		}),
+	)
+
+	if err != nil {
+		return fmt.Errorf("failed to open device: %w", err)
+	}
+
+	// Create a cancellable context
+	ctx, cancel := context.WithCancel(context.Background())
+
+	// Start streaming
+	if err := dev.Start(ctx); err != nil {
+		cancel()
+		dev.Close()
+		return fmt.Errorf("failed to start device: %w", err)
+	}
+
+	camera = dev
+	running = true
+
+	// Force GC to clean up any previous resources
+	runtime.GC()
+
 	return nil
 }
 
-func (g *Game) Draw(screen *ebiten.Image) {
-	cf := float32(g.count)
-	vector.StrokeLine(screen, 100, 100, 300, 100, 1, color.RGBA{0xff, 0xff, 0xff, 0xff}, true)
-	vector.StrokeLine(screen, 50, 150, 50, 350, 1, color.RGBA{0xff, 0xff, 0x00, 0xff}, true)
-	vector.StrokeLine(screen, 50, 100+cf, 200+cf, 250, 4, color.RGBA{0x00, 0xff, 0xff, 0xff}, true)
+// closeCamera safely closes the camera
+func closeCamera() {
+	if camera != nil {
+		running = false
+		camera.Close()
+		camera = nil
 
-	vector.DrawFilledRect(screen, 50+cf, 50+cf, 100+cf, 100+cf, color.RGBA{0x80, 0x80, 0x80, 0xc0}, true)
-	vector.StrokeRect(screen, 300-cf, 50, 120, 120, 10+cf/4, color.RGBA{0x00, 0x80, 0x00, 0xff}, true)
-
-	vector.DrawFilledCircle(screen, 400, 400, 100, color.RGBA{0x80, 0x00, 0x80, 0x80}, true)
-	vector.StrokeCircle(screen, 400, 400, 10+cf, 10+cf/2, color.RGBA{0xff, 0x80, 0xff, 0xff}, true)
-
-	ebitenutil.DebugPrint(screen, fmt.Sprintf("TPS: %0.2f\nEnable Cimgui [q]: %v", ebiten.ActualTPS(), g.showCimgui))
-	if g.showCimgui {
-		g.cimgui.Draw(screen)
+		// Force GC to clean up resources
+		runtime.GC()
 	}
 }
 
-func (g *Game) Layout(outsideWidth, outsideHeight int) (int, int) {
-	g.cimgui.Layout(outsideWidth, outsideHeight)
-	return screenWidth, screenHeight
+func afterCreateContext() {
+	// Create an empty texture for the video
+	texture = &backend.Texture{
+		ID:     currentBackend.CreateEmptyTexture(frameWidth, frameHeight),
+		Width:  frameWidth,
+		Height: frameHeight,
+	}
+
+	// Initialize the camera
+	if err := initCamera(); err != nil {
+		log.Printf("Failed to initialize camera: %v", err)
+	}
+}
+
+func beforeDestroyContext() {
+	// Clean up resources
+	cameraMutex.Lock()
+	defer cameraMutex.Unlock()
+
+	closeCamera()
+
+	// Delete texture if it exists
+	if currentBackend != nil && texture != nil {
+		currentBackend.DeleteTexture(texture.ID)
+		texture = nil
+	}
+}
+
+func loop() {
+	// Update the texture with new frame data
+	updateCameraFrame()
+
+	// Clear callback pool
+	imgui.ClearSizeCallbackPool()
+
+	// Show the video stream
+	showVideoStream()
+
+	// Show demo windows
+	common.ShowWidgetsDemo()
 }
 
 func main() {
 	common.Initialize()
-	ebitenBackend := ebitenbackend.NewEbitenBackend()
-	_, err := backend.CreateBackend(ebitenBackend)
-	if err != nil && !errors.Is(err, backend.CExposerError) {
-		panic(err)
-	}
 
-	game := &Game{showCimgui: true, cimgui: ebitenBackend}
+	currentBackend = ebitenbackend.NewEbitenBackend()
+	_, _ = backend.CreateBackend(currentBackend)
 
-	game.cimgui.CreateWindow("Hello, world!", 800, 600)
+	// Setup hooks
+	currentBackend.SetAfterCreateContextHook(afterCreateContext)
+	currentBackend.SetBeforeDestroyContextHook(beforeDestroyContext)
 
-	common.AfterCreateContext()
-	defer common.BeforeDestroyContext()
+	// Add hooks for before/after rendering to handle potential issues
+	currentBackend.SetBeforeRenderHook(func() {
+		// Nothing special needed here, but hook is set
+	})
 
-	game.cimgui.SetBgColor(imgui.Vec4{0.2, 0.2, 0.2, 0.7})
-	ebiten.SetWindowSize(screenWidth, screenHeight)
-	ebiten.SetWindowTitle("Shapes (Ebitengine Demo)")
+	currentBackend.SetAfterRenderHook(func() {
+		// Nothing special needed here, but hook is set
+	})
 
-	if err := ebiten.RunGame(game); err != nil {
-		log.Fatal(err)
-	}
+	// Set application background color
+	currentBackend.SetBgColor(imgui.NewVec4(0.2, 0.2, 0.2, 1.0))
+
+	// Create window
+	currentBackend.CreateWindow("V4L2 Video in cimgui-go", screenWidth, screenHeight)
+
+	// Set close callback
+	currentBackend.SetCloseCallback(func() {
+		fmt.Println("Window is closing, cleaning up resources")
+		beforeDestroyContext()
+	})
+
+	// Run the application with our loop function
+	currentBackend.Run(loop)
 }

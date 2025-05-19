@@ -9,7 +9,7 @@ package ImGuiColorTextEdit
 // #include "typedefs.h"
 // #include "../imgui/extra_types.h"
 import "C"
-import "github.com/AllenDang/cimgui-go/internal"
+import "github.com/amken3d/cimgui-go/internal"
 
 type TextEditor struct {
 	CData *C.TextEditor

@@ -19,7 +19,7 @@ import (
 	"image"
 	"unsafe"
 
-	"github.com/AllenDang/cimgui-go/imgui"
+	"github.com/amken3d/cimgui-go/imgui"
 )
 
 type voidCallbackFunc func()
@@ -185,6 +185,9 @@ type TextureManager interface {
 	CreateTexture(pixels unsafe.Pointer, width, Height int) imgui.TextureID
 	CreateTextureRgba(img *image.RGBA, width, height int) imgui.TextureID
 	DeleteTexture(id imgui.TextureID)
+	CreateEmptyTexture(width, height int) imgui.TextureID
+	UpdateTexture(id imgui.TextureID, img *image.RGBA) bool
+	UpdateTextureWithRawData(id imgui.TextureID, pixels unsafe.Pointer, width, height int) bool
 }
 
 type backendCExpose interface {

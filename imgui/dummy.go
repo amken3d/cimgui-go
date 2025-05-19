@@ -4,5 +4,5 @@
 package imgui
 
 import (
-	_ "github.com/AllenDang/cimgui-go"
+	_ "github.com/amken3d/cimgui-go"
 )

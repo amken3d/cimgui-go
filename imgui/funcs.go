@@ -10,8 +10,8 @@ import "C"
 import (
 	"unsafe"
 
-	"github.com/AllenDang/cimgui-go/internal"
-	"github.com/AllenDang/cimgui-go/utils/vectors"
+	"github.com/amken3d/cimgui-go/internal"
+	"github.com/amken3d/cimgui-go/utils/vectors"
 )
 
 func (self *BitVector) InternalClear() {

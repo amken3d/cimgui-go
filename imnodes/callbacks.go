@@ -44,7 +44,7 @@ import "C"
 import (
 	"unsafe"
 
-	"github.com/AllenDang/cimgui-go/internal"
+	"github.com/amken3d/cimgui-go/internal"
 )
 
 type (

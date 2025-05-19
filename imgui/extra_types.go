@@ -8,7 +8,7 @@ import (
 	"image/color"
 	"unsafe"
 
-	"github.com/AllenDang/cimgui-go/internal"
+	"github.com/amken3d/cimgui-go/internal"
 )
 
 type (

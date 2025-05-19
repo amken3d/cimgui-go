@@ -5,8 +5,8 @@ import (
 	"image/color"
 	"unsafe"
 
-	"github.com/AllenDang/cimgui-go/backend"
-	"github.com/AllenDang/cimgui-go/imgui"
+	"github.com/amken3d/cimgui-go/backend"
+	"github.com/amken3d/cimgui-go/imgui"
 	"github.com/hajimehoshi/ebiten/v2"
 )
 
@@ -230,4 +230,47 @@ func (b *EbitenBackend) CreateTextureRgba(img *image.RGBA, width, height int) im
 
 func (e *EbitenBackend) DeleteTexture(id imgui.TextureID) {
 	e.cache.RemoveTexture(id)
+}
+
+// CreateEmptyTexture creates an initial empty texture of the specified dimensions
+func (e *EbitenBackend) CreateEmptyTexture(width, height int) imgui.TextureID {
+	// Create a new empty Ebiten image
+	eimg := ebiten.NewImage(width, height)
+
+	// Clear the image with transparent pixels
+	eimg.Fill(color.RGBA{0, 0, 0, 0})
+
+	// Generate texture ID and store in cache
+	tid := imgui.TextureID(e.cache.NextId())
+	e.cache.SetTexture(tid, eimg)
+
+	return tid
+}
+
+// UpdateTexture updates an existing texture with new RGBA image data
+func (e *EbitenBackend) UpdateTexture(id imgui.TextureID, img *image.RGBA) bool {
+	// Get the existing texture from cache
+	texture := e.cache.GetTexture(id)
+	if texture == nil {
+		return false
+	}
+
+	// Write the new pixels to the existing texture
+	texture.WritePixels(img.Pix)
+
+	return true
+}
+
+// UpdateTextureWithRawData updates an existing texture with raw pixel data
+func (e *EbitenBackend) UpdateTextureWithRawData(id imgui.TextureID, pixels unsafe.Pointer, width, height int) bool {
+	// Get the existing texture from cache
+	texture := e.cache.GetTexture(id)
+	if texture == nil {
+		return false
+	}
+
+	// Write the new pixels to the existing texture
+	texture.WritePixels(premultiplyPixels(pixels, width, height))
+
+	return true
 }

@@ -7,15 +7,15 @@ import (
 	"fmt"
 	"image"
 
-	cte "github.com/AllenDang/cimgui-go/ImGuiColorTextEdit"
-	"github.com/AllenDang/cimgui-go/backend"
-	"github.com/AllenDang/cimgui-go/imgui"
-	"github.com/AllenDang/cimgui-go/imguizmo"
-	_ "github.com/AllenDang/cimgui-go/imguizmo"
-	_ "github.com/AllenDang/cimgui-go/immarkdown"
-	_ "github.com/AllenDang/cimgui-go/imnodes"
-	"github.com/AllenDang/cimgui-go/implot"
-	"github.com/AllenDang/cimgui-go/utils"
+	cte "github.com/amken3d/cimgui-go/ImGuiColorTextEdit"
+	"github.com/amken3d/cimgui-go/backend"
+	"github.com/amken3d/cimgui-go/imgui"
+	"github.com/amken3d/cimgui-go/imguizmo"
+	_ "github.com/amken3d/cimgui-go/imguizmo"
+	_ "github.com/amken3d/cimgui-go/immarkdown"
+	_ "github.com/amken3d/cimgui-go/imnodes"
+	"github.com/amken3d/cimgui-go/implot"
+	"github.com/amken3d/cimgui-go/utils"
 )
 
 var (
@@ -71,11 +71,11 @@ func BeforeDestroyContext() {
 func Loop() {
 	imgui.ClearSizeCallbackPool()
 	imguizmo.BeginFrame()
-	ShowWidgetsDemo()
-	ShowPictureLoadingDemo()
-	ShowImPlotDemo()
-	ShowGizmoDemo()
-	ShowCTEDemo()
+	//ShowWidgetsDemo()
+	//ShowPictureLoadingDemo()
+	//ShowImPlotDemo()
+	//ShowGizmoDemo()
+	//ShowCTEDemo()
 }
 
 func ShowWidgetsDemo() {
